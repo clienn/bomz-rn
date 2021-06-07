@@ -6,7 +6,7 @@
  * @flow strict-local
  */
 
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import type {Node} from 'react';
 import {
   SafeAreaView,
@@ -20,7 +20,7 @@ import {
   TextInput,
   SwipeableListView,
   TouchableHighlight, TouchableOpacity, TouchableNativeFeedback, TouchableWithoutFeedback,
-  Animated, Easing, 
+  Animated, Easing, Dimensions,
 } from 'react-native';
 import symbolicateStackTrace from 'react-native/Libraries/Core/Devtools/symbolicateStackTrace';
 
@@ -71,10 +71,78 @@ getZerpPos = (grid) => {
   return pos;
 }
 
+initAnimations = () => {
+  let animations = [];
+
+  for (let i = 0; i < 16; ++i) {
+    animations.push({
+      x: new Animated.Value(0),
+      y: new Animated.Value(0)
+    });
+  }
+
+  return animations;
+}
+
 const App: () => Node = () => {
   const [text, setText] = useState('test');
   const [grid, setGrid] = useState(init());
   const [zeroPos, setZeroPos] = useState(getZerpPos(grid));
+
+  const windowWidth = Dimensions.get('window').width;
+  const cellWidth = Math.floor((windowWidth - 2) / 4 - 8) - 2;
+
+  const [moveAnimation, setMoveAnimation] = useState(initAnimations());
+  const [currSel, setCurrSel] = useState(0);
+
+  callback = (n, i, j) => {
+    let x = zeroPos[1];
+    let y = zeroPos[0];
+  
+    if (x > -1 && y > -1) {
+      let dx = Math.abs(x - j);
+      let dy = Math.abs(y - i);
+  
+      if ((dx == 1 && dy == 0) || (dy == 1 && dx == 0)) {
+        let tmp = grid[i][j];
+        grid[i][j] = 0;
+        grid[y][x] = tmp;
+  
+        setGrid([...grid]);
+        setZeroPos([i, j]);
+
+        let rx = 0;
+        let ry = 0;
+
+        if (dx) {
+          rx = (x - j) < 0 ? 1 : -1;
+        } else {
+          ry = (y - i) < 0 ? 1 : -1;
+        }
+        
+        return [rx, ry];
+      }
+    }
+
+    return null;
+  }
+
+  move = (n, i, j) => {
+    let r = callback(n, i, j);
+
+    if (r) {
+      let d = r[0] ? r[0] : r[1];
+      let c = r[0] ? 'x' : 'y';
+
+      moveAnimation[n][c].setValue(cellWidth * d);
+
+      Animated.timing(moveAnimation[n][c], {
+        toValue: 0,
+        timing: 100,
+        useNativeDriver: true
+      }).start();
+    }
+  }
 
   return (
     <SafeAreaView style={[styles.safeview, {
@@ -97,47 +165,27 @@ const App: () => Node = () => {
       <View style={[{padding: 20}]}>
         <Text>{ text }</Text>
         { grid.map((row, i) => (
-          <View style={[styles.container, { flexDirection: "row" }]}>
+          <View style={[styles.container, { flexDirection: "row" }]} key={'row' + i}>
             { row.map((n, j) => (
-              <TouchableWithoutFeedback onPress={() => {
-                let x = zeroPos[1];
-                let y = zeroPos[0];
-
-                if (x > -1 && y > -1) {
-                  let dx = Math.abs(x - j);
-                  let dy = Math.abs(y - i);
-
-                  if ((dx == 1 && dy == 0) || (dy == 1 && dx == 0)) {
-                    let tmp = grid[i][j];
-                    grid[i][j] = 0;
-                    grid[y][x] = tmp;
-          
-                    setGrid([...grid]);
-                    setZeroPos([i, j]);
-                  }
-                }                
-              }}>
-              <View style={n ? styles.cell : styles.zeroCell }>
-                <Text style={n ? styles.cellFont : styles.zeroCellFont }>{ n }</Text>
-              </View>
+              <TouchableWithoutFeedback onPress={() => { move(n, i, j); }}>
+              <Animated.View style={ [{
+                  transform: [
+                    { translateX: moveAnimation[n].x },
+                    { translateY: moveAnimation[n].y }
+                  ]
+                }, n ? styles.cell : styles.zeroCell] } key={ n }>
+                <Text style={n ? styles.cellFont : styles.zeroCellFont } key={'text' + n}>{ n }</Text>
+              </Animated.View>
               </TouchableWithoutFeedback>
             ))}
           </View>
         ))}
 
       </View>
-      
-      {/* <View style={[styles.container, { flexDirection: "row" }]}>
-        <View style={styles.cell} />
-        <View style={styles.cell} />
-        <View style={styles.cell} />
-        <View style={styles.cell} />
-      </View> */}
+
     </SafeAreaView>
   );
 };
-
-
 
 const styles = StyleSheet.create({
   safeview: {
@@ -158,6 +206,7 @@ const styles = StyleSheet.create({
     margin: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 999
   },
 
   cellFont: {
@@ -166,11 +215,13 @@ const styles = StyleSheet.create({
 
   zeroCell: {
     flex: 3,
-    backgroundColor: "#fff",
+    // backgroundColor: "#fff",
     aspectRatio: 1,
     margin: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: -999, // works on ios
+    elevation: -999, // works on android
   },
 
   zeroCellFont: {
